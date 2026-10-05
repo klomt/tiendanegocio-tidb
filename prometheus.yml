@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+
+  # Job para los endpoints de Placement Driver (PD)
+  - job_name: "pd"
+    static_configs:
+      - targets:
+          - "pd:2379"
+
+  # Job para los endpoints de TiKV
+  - job_name: "tikv"
+    static_configs:
+      - targets:
+          - "tikv1:20180"
+          - "tikv2:20180"
+          - "tikv3:20180"
+
+  # Job para los endpoints de TiDB
+  - job_name: "tidb"
+    static_configs:
+      - targets:
+          - "tidb:10080"
+
+  # Job para los endpoints del DM master
+  - job_name: "dm-master"
+    static_configs:
+      - targets:
+          - "dm-master:8261"
+
+  # Job para los endpoints de los workers de DM
+  - job_name: "dm-worker"
+    static_configs:
+      - targets:
+          - "dm-worker:8262"

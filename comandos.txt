@@ -1,0 +1,33 @@
+
+Fase 1: Dumpling para tidb-lightning
+
+tiup dumpling -h localhost -P 2207 -u root -prootpassword   -t 16 -r 200000 -F 256MiB --filetype csv -o ./dumpling-output
+
+Fase 2: Realizar estampado del lightning con el dumpling previamente generado
+
+docker compose run --rm tidb-lightning
+
+Fase 3: inciciamos la sincronizacion incremental continua, 
+task.yaml tiene que tener el binlog-name y el binlog-post del metadata del dumpling, lo vemos con la verificacion de binlogs
+
+verificacion de binlogs
+cat ./dumpling-output/metadata
+
+iniciar DM
+1. Lee el archivo de source, 2. Lee el archivo de task, 3. Inicia el archivo de task, 4. Te devuelve el estado de como salio
+
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 operate-source create /config-dm/source.yaml 
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 check-task /config-dm/task.yaml
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 start-task /config-dm/task.yaml
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 query-status mysql2tidb-task
+
+
+Fase 4: sync_diff_inspector - validar si hay diferencias de sincronizacion
+
+docker compose exec sync-diff /sync_diff_inspector --config /config/config.toml
+docker compose exec sync-diff cat /output/summary.txt
+
+comandos para parar/eliminar todo lo de Data migration
+
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 stop-task mysql2tidb-task
+docker compose exec dmctl /dmctl --master-addr=dm-master:8261 operate-source stop /config-dm/source.yaml

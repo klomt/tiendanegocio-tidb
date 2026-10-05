@@ -1,0 +1,14 @@
+name: "mysql2tidb-task"
+task-mode: incremental
+
+target-database:
+  host: tidb-server
+  port: 4000
+  user: root
+  password: ""
+
+mysql-instances:
+  - source-id: "mysql-source"
+    meta:
+      binlog-name: "mysql-bin.000005"   # del metadata que generó Dumpling
+      binlog-pos: 48733

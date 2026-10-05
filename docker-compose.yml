@@ -1,0 +1,245 @@
+
+# TiDB Stack con PD, TiKV, TiDB, monitoring, Grafana, DM y herramientas de sincronización.
+#
+# Este archivo levanta un clúster de prueba para desarrollo local y migración de datos.
+# Incluye:
+# - Coordinador PD (Placement Driver)
+# - 3 nodos TiKV (almacenamiento distribuido)
+# - Servidor TiDB (motor SQL)
+# - Monitor de TiDB / ng-monitoring
+# - Prometheus + Grafana
+# - DM (Data Migration) master/worker
+# - Herramientas de sincronización (sync-diff y TiDB Lightning)
+#
+# Puertos principales:
+# - TiDB: 4000
+# - PD: 2379
+# - Prometheus: 9090
+# - Grafana: 3000
+# - DM master: 8261
+#
+# Nota: La red 'migration-net' se usa para conectarse con otros contenedores/composes
+# del entorno de migración, por ejemplo MySQL externo.
+
+services:
+
+  # PD (Placement Driver): coordina el clúster de TiKV y registra metadata del cluster.
+  pd:
+    image: pingcap/pd:v8.5.8
+    container_name: tidb-pd
+    command:
+      - --name=pd
+      - --data-dir=/data/pd
+      - --client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pd:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-peer-urls=http://pd:2380
+      - --initial-cluster=pd=http://pd:2380
+    volumes:
+      - pd-data:/data/pd
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+
+  tikv1:
+    image: pingcap/tikv:v8.5.8
+    container_name: tidb-tikv1
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv1:20160
+      - --data-dir=/data/tikv
+    depends_on:
+      - pd
+    volumes:
+      - tikv1-data:/data/tikv
+    ports:
+      - "20160:20160"
+
+  tikv2:
+    image: pingcap/tikv:v8.5.8
+    container_name: tidb-tikv2
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv2:20160
+      - --data-dir=/data/tikv
+    depends_on:
+      - pd
+    volumes:
+      - tikv2-data:/data/tikv
+    ports:
+      - "20161:20160"
+
+  tikv3:
+    image: pingcap/tikv:v8.5.8
+    container_name: tidb-tikv3
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv3:20160
+      - --data-dir=/data/tikv
+    depends_on:
+      - pd
+    volumes:
+      - tikv3-data:/data/tikv
+    ports:
+      - "20162:20160"
+
+  # TiDB: motor SQL distribuido que sirve consultas a clientes MySQL.
+  tidb:
+    image: pingcap/tidb:v8.5.8
+    container_name: tidb-server
+    command:
+      - --store=tikv
+      - --path=pd:2379
+      - --host=0.0.0.0
+    depends_on:
+      - pd
+      - tikv1
+      - tikv2
+      - tikv3
+    ports:
+      - "4000:4000"
+      - "10080:10080"
+  # ng-monitoring: recolector y visualización de métricas de componentes del clúster.
+  ng-monitoring:
+    image: pingcap/ng-monitoring:v8.5.8
+    container_name: tidb-ng-monitoring
+    command:
+      - --pd.endpoints=pd:2379
+      - --address=0.0.0.0:12020
+      - --advertise-address=ng-monitoring:12020
+      - --storage.path=/data
+    volumes:
+      - ng-monitoring-data:/data
+    ports:
+      - "12020:12020"
+    depends_on:
+      - pd
+
+  # Prometheus: almacenamiento y consulta de métricas del stack TiDB.
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tidb-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - pd
+      - tikv1
+      - tikv2
+      - tikv3
+      - tidb
+
+  # Grafana: dashboards para visualizar métricas del entorno.
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tidb-grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+  # DM Master: componente principal de Data Migration para sincronizar datos.
+  dm-master:
+    image: pingcap/dm:v8.5.8
+    container_name: tidb-dm-master
+    command:
+      - /dm-master
+      - --name=master1
+      - --master-addr=0.0.0.0:8261
+      - --advertise-addr=dm-master:8261
+      - --peer-urls=http://0.0.0.0:8262
+      - --advertise-peer-urls=http://dm-master:8262
+      - --initial-cluster=master1=http://dm-master:8262
+      - --data-dir=/data/dm-master
+    volumes:
+      - dm-master-data:/data/dm-master
+      - ./config-dm:/config-dm
+    ports:
+      - "8261:8261"
+      - "8262:8262"
+    networks:
+      - default
+      - migration-net
+    depends_on:
+      - pd
+      - tidb
+
+  # DM Worker: ejecuta tareas de migración y sincronización de datos.
+  dm-worker:
+    image: pingcap/dm:v8.5.8
+    container_name: tidb-dm-worker
+    command:
+      - /dm-worker
+      - --name=worker1
+      - --worker-addr=0.0.0.0:8262
+      - --advertise-addr=dm-worker:8262
+      - --join=http://dm-master:8261
+    volumes:
+      - ./config-dm:/config-dm
+    networks:
+      - default
+      - migration-net     # para llegar al MySQL del otro compose
+    depends_on:
+      - dm-master
+
+  # dmctl: cliente de administración para DM, queda en modo interactivo para ejecuciones manuales.
+  dmctl:
+    image: pingcap/dm:v8.5.8
+    container_name: tidb-dmctl
+    entrypoint: ["sleep", "infinity"]   # anula el CMD por defecto que crashea
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./config-dm:/config-dm
+    depends_on:
+      - dm-master
+
+  # TiDB Lightning: carga masiva de datos desde dump/CSV hacia TiDB.
+  tidb-lightning:
+    image: pingcap/tidb-lightning:v8.5.8
+    container_name: tidb-lightning
+    volumes:
+      - ./dumpling-output:/data/dumpling_output
+      - ./lightning.toml:/lightning.toml
+    command: ["--config", "/lightning.toml"]   # ojo: ruta absoluta, no "./lightning.toml"
+    depends_on:
+      - tidb
+      - pd
+  # sync-diff: herramienta para comparar datos entre origen y destino.
+  sync-diff:
+    image: pingcap/sync-diff-inspector:v8.5.8
+    container_name: sync-diff
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - ./sync-diff-config:/config
+      - ./sync-diff-output:/output
+    networks:
+      - default
+      - migration-net
+  
+# Redes del entorno.
+# - default: red interna del clúster TiDB.
+# - migration-net: red externa para conectarse con otros servicios como MySQL o stacks de migración.
+networks:
+  default:
+    name: tidb-net
+  migration-net:
+    external: true
+
+# Volúmenes persistentes para datos del clúster, monitoring y almacenamiento de Grafana/Prometheus.
+volumes:
+  pd-data:
+  tikv1-data:
+  tikv2-data:
+  tikv3-data:
+  dm-master-data:
+  dm-worker-data:
+  ng-monitoring-data:
+  prometheus-data:
+  grafana-data:

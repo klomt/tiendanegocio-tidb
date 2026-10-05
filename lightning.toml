@@ -1,0 +1,20 @@
+[lightning]
+level = "info"
+file = "tidb-lightning.log"
+
+[mydumper]
+data-source-dir = "/data/dumpling_output" 
+# Directorio donde se encuentra el dump de datos generado por Dumpling.
+
+[tikv-importer]
+backend = "tidb"
+
+[tidb]
+host = "tidb"
+port = 4000
+user = "root"
+password = ""
+status-port = 10080
+pd-addr = "pd:2379"
+
+# Base de datos tidb a la que se importarán los datos. Debe existir previamente.

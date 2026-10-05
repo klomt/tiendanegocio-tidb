@@ -1,0 +1,7 @@
+source-id: "mysql-source"
+enable-gtid: false      # false si el origen no tiene GTID activado
+from:
+  host: db        # nombre del servicio en el otro compose, en la red migration-net
+  port: 3306
+  user: root
+  password: "rootpassword"

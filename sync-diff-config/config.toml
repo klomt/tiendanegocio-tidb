@@ -1,0 +1,22 @@
+check-thread-count = 4
+export-fix-sql = true       # true = te arma el SQL de arreglo si hay diferencias
+check-struct-only = false   # false = compara estructura Y datos
+
+[data-sources]
+[data-sources.mysql1]
+host = "db"
+port = 3306
+user = "root"
+password = "rootpassword"
+
+[data-sources.tidb0]
+host = "tidb-server"
+port = 4000
+user = "root"
+password = ""
+
+[task]
+output-dir = "/output"
+source-instances = ["mysql1"]
+target-instance = "tidb0"
+target-check-tables = ["mydatabase.*"]   # todas las tablas de esa base; podés listar tabla por tabla también
